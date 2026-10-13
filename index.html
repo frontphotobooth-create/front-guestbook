@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#171717">
+<link rel="manifest" href="manifest.json">
+<title>Front Guest Book — Prototype</title>
+<style>
+:root{color-scheme:dark;--bg:#101010;--panel:#1c1c1c;--line:#333;--accent:#f2e7d5;--muted:#aaa}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:#f8f8f8;font:16px -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+main{max-width:850px;margin:auto;padding:20px 16px 48px}header{display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line);padding-bottom:14px}
+h1{font-size:22px;margin:0} .sub{color:var(--muted);font-size:13px;margin-top:5px}
+.pill{border:1px solid #555;border-radius:999px;padding:6px 10px;font-size:12px;color:var(--accent)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;margin-top:16px}
+video{display:block;width:100%;max-height:52vh;object-fit:cover;background:#000;border-radius:12px;transform:scaleX(-1)}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}button,.filebtn{border:0;border-radius:12px;padding:13px 16px;font-size:15px;font-weight:650;cursor:pointer;background:var(--accent);color:#171717}
+button.secondary,.filebtn.secondary{background:#333;color:#fff;border:1px solid #555}button.danger{background:#b52d2d;color:#fff}button:disabled{opacity:.4;cursor:not-allowed}
+label{display:block;color:#ddd;font-size:14px;margin:10px 0 6px}input[type=file],input[type=text]{width:100%;padding:10px;background:#111;border:1px solid #444;color:#fff;border-radius:9px}
+.status{color:var(--accent);min-height:24px;margin-top:12px;font-size:14px}.note{font-size:13px;line-height:1.5;color:#bbb}
+.item{border-top:1px solid var(--line);padding:12px 0;display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}.item:first-child{border-top:0}.item video{width:130px;max-height:90px}
+small{color:var(--muted)}.hidden{display:none!important}
+</style>
+</head>
+<body>
+<main>
+<header><div><h1>FRONT Guest Book</h1><div class="sub">Prototype Audio + Video • Offline-first</div></div><span class="pill">UJI COBA</span></header>
+<section class="panel">
+  <video id="preview" autoplay muted playsinline></video>
+  <div class="row">
+    <button id="cameraBtn">Aktifkan kamera & mikrofon</button>
+    <button id="stopBtn" class="danger" disabled>Stop rekaman</button>
+  </div>
+  <div id="status" class="status">Status: belum siap. Izinkan akses kamera dan mikrofon saat diminta.</div>
+  <p class="note">Preview menggunakan kamera depan. Pastikan iPad tidak dalam mode senyap jika ingin mendengar greeting. Tes awal harus dilakukan saat aplikasi terbuka dan layar tetap menyala.</p>
+</section>
+<section class="panel">
+  <h2 style="font-size:18px;margin:0 0 8px">Greeting</h2>
+  <label for="greeting">Pilih file greeting audio</label>
+  <input id="greeting" type="file" accept="audio/*">
+  <audio id="greetingPlayer" controls class="hidden" style="width:100%;margin-top:10px"></audio>
+  <div class="row">
+    <button id="playGreeting" class="secondary" disabled>Putar greeting saja</button>
+    <button id="greetRecord" disabled>Greeting lalu rekam</button>
+  </div>
+  <p class="note">Prototype ini memutar greeting yang dipilih, lalu mulai merekam setelah audio selesai. Ini belum terhubung ke sensor gagang telepon.</p>
+</section>
+<section class="panel">
+  <h2 style="font-size:18px;margin:0 0 8px">Rekaman tersimpan di iPad</h2>
+  <p class="note">Video disimpan ke penyimpanan situs di browser (IndexedDB), bukan otomatis ke aplikasi Foto. Jangan hapus data situs/browser sebelum mengekspor file.</p>
+  <div id="recordings"><small>Belum ada rekaman.</small></div>
+</section>
+<section class="panel">
+  <h2 style="font-size:16px;margin:0 0 8px">Batasan prototype</h2>
+  <ul class="note">
+    <li>Belum ada trigger gagang; Start/Stop masih manual.</li>
+    <li>Butuh Safari/iPadOS yang mendukung MediaRecorder dan akses kamera lewat HTTPS.</li>
+    <li>Browser dapat membatasi penyimpanan, dan iOS bisa menghentikan halaman di latar belakang. Untuk event berbayar, perlu tes panjang dan backup.</li>
+    <li>Mode offline baru berfungsi setelah halaman dibuka pertama kali secara online pada hosting HTTPS dan service worker berhasil dipasang.</li>
+  </ul>
+</section>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+let stream=null, recorder=null, chunks=[], db=null, greetingURL=null, recording=false;
+const status=(s)=>$('status').textContent='Status: '+s;
+function openDB(){return new Promise((resolve,reject)=>{const r=indexedDB.open('FrontGuestBookDB',1);r.onupgradeneeded=()=>r.result.createObjectStore('videos',{keyPath:'id',autoIncrement:true});r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
+function saveBlob(blob,created){return new Promise((resolve,reject)=>{const tx=db.transaction('videos','readwrite');tx.objectStore('videos').add({blob,created,mime:blob.type||'video/webm'});tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}
+function getAll(){return new Promise((resolve,reject)=>{const r=db.transaction('videos').objectStore('videos').getAll();r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)})}
+function removeItem(id){return new Promise((resolve,reject)=>{const tx=db.transaction('videos','readwrite');tx.objectStore('videos').delete(id);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}
+async function renderList(){const list=await getAll();$('recordings').innerHTML='';if(!list.length){$('recordings').innerHTML='<small>Belum ada rekaman.</small>';return}
+for(const rec of list.reverse()){const url=URL.createObjectURL(rec.blob);const row=document.createElement('div');row.className='item';const info=document.createElement('div');info.innerHTML='<strong>Rekaman '+rec.id+'</strong><br><small>'+new Date(rec.created).toLocaleString()+' • '+(rec.blob.size/1048576).toFixed(1)+' MB</small>';
+const vid=document.createElement('video');vid.src=url;vid.controls=true;vid.playsInline=true;vid.style.transform='none';
+const actions=document.createElement('div');actions.className='row';actions.style.marginTop='0';
+const dl=document.createElement('button');dl.className='secondary';dl.textContent='Ekspor video';dl.onclick=()=>{const a=document.createElement('a');a.href=url;a.download='Front-GuestBook-'+rec.id+'.webm';a.click()};
+const del=document.createElement('button');del.className='danger';del.textContent='Hapus';del.onclick=async()=>{if(confirm('Hapus rekaman ini?')){await removeItem(rec.id);URL.revokeObjectURL(url);renderList()}};
+actions.append(dl,del);row.append(info,vid,actions);$('recordings').append(row)}
+}
+async function startCamera(){if(!navigator.mediaDevices?.getUserMedia)throw new Error('Browser tidak menyediakan akses kamera. Buka dari Safari melalui HTTPS.');stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user'},audio:true});$('preview').srcObject=stream;$('playGreeting').disabled=!$('greeting').files.length;$('greetRecord').disabled=!$('greeting').files.length;status('kamera dan mikrofon aktif. Siap tes.')}
+async function startRecording(){if(!stream)await startCamera();if(!window.MediaRecorder)throw new Error('MediaRecorder tidak didukung browser ini.');chunks=[];let options={};if(MediaRecorder.isTypeSupported('video/mp4'))options.mimeType='video/mp4';else if(MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus'))options.mimeType='video/webm;codecs=vp8,opus';recorder=new MediaRecorder(stream,options);recorder.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data)};recorder.onstop=async()=>{try{const blob=new Blob(chunks,{type:recorder.mimeType||'video/webm'});if(!blob.size)throw new Error('File kosong');await saveBlob(blob,new Date().toISOString());await renderList();status('rekaman tersimpan di browser iPad. Ekspor untuk backup.')}catch(e){status('gagal menyimpan: '+e.message)}recording=false;$('stopBtn').disabled=true;$('greetRecord').disabled=!$('greeting').files.length};recorder.start(1000);recording=true;$('stopBtn').disabled=false;$('greetRecord').disabled=true;status('SEDANG MEREKAM — biarkan halaman terbuka')}
+$('cameraBtn').onclick=async()=>{try{await startCamera()}catch(e){status('gagal: '+e.message)}};
+$('stopBtn').onclick=()=>{if(recorder&&recording)recorder.stop()};
+$('greeting').onchange=()=>{const f=$('greeting').files[0];if(!f)return;if(greetingURL)URL.revokeObjectURL(greetingURL);greetingURL=URL.createObjectURL(f);$('greetingPlayer').src=greetingURL;$('greetingPlayer').classList.remove('hidden');$('playGreeting').disabled=false;$('greetRecord').disabled=false};
+$('playGreeting').onclick=async()=>{try{await $('greetingPlayer').play()}catch(e){status('tidak bisa memutar greeting: '+e.message)}};
+$('greetRecord').onclick=async()=>{try{if(!$('greeting').files.length)return; if(!stream)await startCamera();$('greetRecord').disabled=true;$('playGreeting').disabled=true;status('memutar greeting…');$('greetingPlayer').currentTime=0;await $('greetingPlayer').play();await new Promise(resolve=>{$('greetingPlayer').onended=resolve});await startRecording()}catch(e){status('gagal: '+e.message);$('greetRecord').disabled=false;$('playGreeting').disabled=false}};
+(async()=>{try{db=await openDB();await renderList();if('serviceWorker'in navigator && location.protocol.startsWith('http'))navigator.serviceWorker.register('./sw.js').catch(()=>{});if(!window.isSecureContext)status('halaman belum secure. Untuk kamera, gunakan HTTPS hosting atau localhost di perangkat yang sama.')}catch(e){status('inisialisasi gagal: '+e.message)}})();
+</script>
+</body>
+</html>
